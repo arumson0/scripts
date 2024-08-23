@@ -1,0 +1,49 @@
+#!/bin/bash
+#SBATCH --nodes=1
+#SBATCH --tasks-per-node=32
+#SBATCH --mem=124GB
+#SBATCH --time=48:00:00
+#SBATCH --job-name=pbe-ts_ba2n
+#SBATCH --account=def-ejohnson
+
+module purge
+module load StdEnv/2020
+module load intel/2020.1.217 imkl/2020.1.217 openmpi/4.0.3
+module load libxc/5.1.3
+
+export OMP_NUM_THREADS=1
+export MKL_NUM_THREADS=1
+export MKL_DYNAMIC=FALSE
+ulimit -s unlimited
+
+cd /home/arumson/scratch/electrides/fhiaims/gga/pbe-ts/ba2n/pressures
+
+for a in `seq -w -40 5 50`
+do
+	p=$(awk "BEGIN {print ($a * 0.00062415)}")
+	sed -i "s/external_pressure/external_pressure $p/" control.in
+
+	echo "crystal pbe-ts_ba2n.out
+	write geometry.in"
+	critic2 < ding > dong
+
+	mpirun /home/arumson/projects/def-ejohnson/FHIaims/FHIaims_XDM_2.0/build/aims.210513.mpi.x </dev/null > pbe-ts_ba2n.out
+	
+	if test -f "geometry.in.next_step"
+	then
+		mv geometry.in.next_step geometry.in
+		mpirun /home/arumson/projects/def-ejohnson/FHIaims/FHIaims_XDM_2.0/build/aims.210513.mpi.x </dev/null > pbe-ts_ba2n.out
+	else
+		continue
+	fi
+
+	P=$(grep 'Total pressure inside system' pbe-ts_ba2n.out | tail -n 1 | awk '{print $7/0.00062415}')
+	#H=$(grep '' pbe-ts_ba2n.out | tail -n 1 | awk '{print $}')
+	V=$(grep 'Cell volume' pbe-ts_ba2n.out | tail -n 1 | awk '{print $5}')
+	E=$(grep 'Total energy uncorrected' pbe-ts_ba2n.out | tail -n 1 | awk '{print $6}')
+
+	echo $P $H $V $E >> EOS.dat
+	
+	cp pbe-ts_ba2n.out pbe-ts_ba2n.out_$a
+	sed -i "s/external_pressure $p/external_pressure/" control.in
+done
