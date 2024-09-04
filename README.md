@@ -32,4 +32,4 @@ OPTIONS:
   prints the area of the plane formed by the a and b lattice vectors.
 
 For example:
-`fritic2 -a -b geometry.in`
+`fritic2 -a -b geometry.in POSCAR` will print the a and b lattice parameters of geometry.in, and write the cell to a new file called POSCAR.
