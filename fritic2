@@ -57,12 +57,14 @@ fritic2 () {
       C_end=$(awk "BEGIN {print $C_end + $vac}")
       echo $C_start $C_end >> NEWGEOM.in
       tail -n +3 TMP_X.xyz | awk '{print "atom",$2,$3,$4,$1}' >> NEWGEOM.in
-      rm TMP_G.in
-      rm TMP_X.xyz
 
       echo "crystal NEWGEOM.in
       write $2" > cri
       critic2 < cri > cro
+
+      rm TMP_G.in
+      rm TMP_X.xyz
+      rm NEWGEOM.in
     else 
       echo "Invalid arguments." >&2
       return 1
