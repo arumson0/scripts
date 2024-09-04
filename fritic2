@@ -1,0 +1,96 @@
+fritic2 () {
+    OPTIND=1
+    # Initialize option flags
+    a_flag=0
+    b_flag=0
+    c_flag=0
+    v_flag=0
+    n_flag=0
+    A_flag=0
+
+    # Check if any options are provided
+    if [[ $1 == -* ]]; then
+        # Parse options using getopts
+        while getopts "abcvnA" opt; do
+            case ${opt} in
+                a) a_flag=1 ;;
+                b) b_flag=1 ;;
+                c) c_flag=1 ;;
+                v) v_flag=1 ;;
+                n) n_flag=1 ;;
+                A) A_flag=1 ;;
+                *) echo "Invalid option: -$OPTARG" >&2; return 1 ;;
+            esac
+        done
+        shift $((OPTIND - 1)) # Shift past the options
+    fi
+
+    # fritic2 prints geometric data to the terminal:
+    if [ "$#" -eq 1 ]
+    then
+      echo "crystal $1" > cri
+      critic2 < cri > cro
+    # fritic2 writes a new file from an existing one
+    elif [ "$#" -eq 2 ]
+    then
+      echo "crystal $1
+      write $2" > cri
+      critic2 < cri > cro
+    # fritic2 writes a newcell (with specified integer replications) to a new file from an existing one
+    elif [ "$#" -eq 5 ]
+    then
+      echo "crystal $1
+      newcell $3 $4 $5
+      write $2" > cri
+      critic2 < cri > cro
+    else
+      echo "Invalid arguments." >&2
+      return 1
+    fi
+
+    # Execute grep based on the flags
+    if [ $a_flag -eq 1 ]; then
+        echo "a-parameter (Ang):"
+        grep "Lattice parameters (ang):" cro | awk '{print $4}'
+    fi
+
+    if [ $b_flag -eq 1 ]; then
+        echo "b-parameter (Ang):"
+        grep "Lattice parameters (ang):" cro | awk '{print $5}'
+    fi
+
+    if [ $c_flag -eq 1 ]; then
+        echo "c-parameter (Ang):"
+        grep "Lattice parameters (ang):" cro | awk '{print $6}'
+    fi
+
+    if [ $v_flag -eq 1 ]; then
+        echo "Cell volume (Ang^3):"
+        grep "Cell volume (ang^3):" cro | awk '{print $4}'
+    fi
+
+    if [ $n_flag -eq 1 ]; then
+        echo "Atoms in unit cell:"
+        grep "Number of atoms in the unit cell:" cro | awk '{print $8}'
+    fi
+
+    if [ $A_flag -eq 1 ]; then
+      echo "Area of the ab-plane (Ang^2):"
+      if [ "$#" -le 2 ]; then
+        c=$(grep "Lattice parameters (ang):" cro | awk '{print $6}')
+        v=$(grep "Cell volume (ang^3):" cro | awk '{print $4}')
+        awk "BEGIN {print $v / $c}"
+      else
+        c1=$(grep "Lattice parameters (ang):" cro | awk '{print $6}' | head -n 1)
+        v1=$(grep "Cell volume (ang^3):" cro | awk '{print $4}' | head -n 1)
+        c2=$(grep "Lattice parameters (ang):" cro | awk '{print $6}' | tail -n 1)
+        v2=$(grep "Cell volume (ang^3):" cro | awk '{print $4}' | tail -n 1)
+        awk "BEGIN {print $v1 / $c1}"
+        awk "BEGIN {print $v2 / $c2}"
+      fi
+    fi
+
+    # Clean up
+    rm cri
+    rm cro
+}
