@@ -11,7 +11,7 @@ fritic2 () {
     # Check if any options are provided
     if [[ $1 == -* ]]; then
         # Parse options using getopts
-        while getopts "abcvnA" opt; do
+        while getopts "abcvnAk" opt; do
             case ${opt} in
                 a) a_flag=1 ;;
                 b) b_flag=1 ;;
@@ -19,6 +19,7 @@ fritic2 () {
                 v) v_flag=1 ;;
                 n) n_flag=1 ;;
                 A) A_flag=1 ;;
+                k) k_flag=1 ;;
                 *) echo "Invalid option: -$OPTARG" >&2; return 1 ;;
             esac
         done
@@ -36,14 +37,36 @@ fritic2 () {
       echo "crystal $1
       write $2" > cri
       critic2 < cri > cro
-    # fritic2 writes a newcell (with specified integer replications) to a new file from an existing one
     elif [ "$#" -eq 5 ]
     then
       echo "crystal $1
       newcell $3 $4 $5
       write $2" > cri
       critic2 < cri > cro
-    else
+    elif [ "$#" -eq 4 ] && [ $3 == 'ADDVAC' ]
+    then 
+      vac=$4
+      echo "ADDING $vac ANGSTROMS OF VACUUM TO $1."
+      echo "crystal $1
+      write TMP_G.in
+      write TMP_X.xyz" > cri
+      critic2 < cri > cro
+
+      grep "lattice_vector" TMP_G.in | head -n 2 >> NEWGEOM.in
+      C_start=$(grep "lattice_vector" TMP_G.in | tail -n 1 | awk '{print $1, $2, $3}')
+      C_end=$(grep "lattice_vector" TMP_G.in | tail -n 1 | awk '{print $4}')
+      C_end=$(awk "BEGIN {print $C_end + $vac}")
+      echo $C_start $C_end >> NEWGEOM.in
+      tail -n +3 TMP_X.xyz | awk '{print "atom",$2,$3,$4,$1}' >> NEWGEOM.in
+
+      echo "crystal NEWGEOM.in
+      write $2" > cri
+      critic2 < cri > cro
+
+      rm TMP_G.in
+      rm TMP_X.xyz
+      rm NEWGEOM.in
+    else 
       echo "Invalid arguments." >&2
       return 1
     fi
@@ -88,6 +111,16 @@ fritic2 () {
         awk "BEGIN {print $v1 / $c1}"
         awk "BEGIN {print $v2 / $c2}"
       fi
+    fi
+
+    if [ $k_flag -eq 1 ]; then
+      echo "crystal $1
+      kpoints" > crik
+      critic2 < crik > crok
+      echo "Suggested k-grids:"
+      sed -n '/---  Rk  ---   -- kpts --/,/^$/p' crok
+      rm crik
+      rm crok
     fi
 
     # Clean up
