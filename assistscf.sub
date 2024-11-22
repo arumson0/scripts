@@ -1,0 +1,144 @@
+#!/bin/bash
+#SBATCH --nodes=1
+#SBATCH --tasks-per-node=64
+#SBATCH --mem=0
+#SBATCH --time=24:00:00
+#SBATCH --job-name=w_Gamma_fromHet
+#SBATCH --account=def-ejohnson
+
+rm progress.log
+# This script is designed to handle a difficult PWscf calculation.
+# The difficulties accounted for will be:
+# - Poor SCF convergence
+# - Cholesky computation issues
+
+# Calculation is:
+geom="w"
+
+echo "CALCULATION IS: $geom" >> progress.log
+
+# Function to test the status of the calculation
+test_status () {
+file=$1
+if [ grep -q "JOB DONE" $file ] && [ grep -q "End final coordinates" $file ]
+  then
+  echo "done"
+elif [ grep -q "JOB DONE" $file ] && [ grep -qv "NOT achieved" $file ]
+  then
+  echo "good"
+elif [ grep -q "JOB DONE" $file ] && [ grep -q "NOT achieved" $file ]
+  then
+  echo "bad_conv"
+elif [ grep -q "problems computing cholesky" $file ]
+  then
+  echo "cholesky"
+else
+  echo "unknown"
+fi
+}
+
+followup_calc () {
+cond=$1
+index=$2
+
+case $file in
+  done)
+    echo "Job finished successfully. No further action required." >> progress.log
+  ;;
+  good)
+    echo "Job finished, but the calculation is not done. Resubmtting..." >> progress.log
+    mv $geom.scf.out $geom.scf.out_good_$index
+    mv $geom.scf.in $geom.scf.in_good_$index
+    ~/apps/pwout2in.awk $geom.scf.out_good_$index $geom.scf.in_good_$index > $geom.scf.in
+
+    mpirun pw.x < $geom.scf.in > $geom.scf.out
+  ;;
+  bad_conv)
+    echo "Bad convergence. Editing the convergence criteria..." >> progress.log
+    mv $geom.scf.out $geom.scf.out_bad_conv_$index
+    mv $geom.scf.in $geom.scf.in_bad_conv_$index
+    ~/apps/pwout2in.awk $geom.scf.out_bad_conv_$index $geom.scf.in_bad_conv_$index > $geom.scf.in
+
+    # Lower the mixing parameter:
+    curr_mix=$(grep "mixing_beta" $geom.scf.in)
+    mod_mix_param=$(grep "mixing_beta" w.scf.in | awk -F = '{print $2 - 0.05}')
+    mod_mix=$(echo "mixing_beta =" $mod_mix_param)
+    sed -i "s/$curr_mix/$mod_mix/" $geom.scf.in
+
+    # Increase the smearing
+    curr_smear=$(grep "degauss" $geom.scf.in)
+    mod_smear_param=$(grep "degauss" w.scf.in | awk -F = '{print $2+0.01}')
+    mod_smear=$(echo "degauss =" $mod_smear_param)
+    sed -i "s/$curr_smear/$mod_smear/" $geom.scf.in
+
+    # Lower the ecuts
+    curr_wfc=$(grep "ecutwfc" $geom.scf.in)
+    mod_wfc_param=$(grep "ecutwfc" w.scf.in | awk -F = '{print $2-5}')
+    mod_wfc=$(echo "ecutwfc =" $mod_wfc_param)
+    sed -i "s/$curr_wfc/$mod_wfc/" $geom.scf.in
+
+    curr_rho=$(grep "ecutrho" $geom.scf.in)
+    mod_rho_param=$(grep "ecutrho" w.scf.in | awk -F = '{print $2-50}')
+    mod_rho=$(echo "ecutrho =" $mod_rho_param)
+    sed -i "s/$curr_rho/$mod_rho/" $geom.scf.in
+
+    mpirun pw.x < $geom.scf.in > $geom.scf.out
+  ;;
+  cholesky)
+    echo "Problems with the diagonalization. Editing the diagonalization method..." >> progress.log
+    mv $geom.scf.out $geom.scf.out_cholesky_$index
+    mv $geom.scf.in $geom.scf.in_cholesky_$index
+    ~/apps/pwout2in.awk $geom.scf.out_cholesky_$index $geom.scf.in_cholesky_$index > $geom.scf.in
+
+    curr_diag_line=$(grep "diago_david_ndim" $geom.scf.in)
+    curr_diag_dim=$(grep "diago_david_ndim" $geom.scf.in | awk -F = '{print $2}')
+    if [ test $curr_diag_dim -lt 16 ]
+      then
+      mod_diag_dim=$(grep "diago_david_ndim" $geom.scf.in | awk -F = '{print $2 + 4}')
+      mod_diag_line=$(echo "diago_david_ndim = " $mod_diag_dim)
+      sed -i "s/$curr_diag_line/$mod_diag_line/" $geom.scf.in
+    else
+      echo "The Davidson Diagonalization dimension has been increased to 16 to no avail. Switching to cg diag."
+      sed -i "s/$curr_diag_line/diagonalization='cg'/" $geom.scf.in
+      sed -i "s/calculation='relax',/calculation='relax',\n nstep=1/" $geom.scf.in
+    fi
+
+    mpirun pw.x < $geom.scf.in > $geom.scf.out
+  ;;
+  unknown)
+    echo "Unknown error encountered. Terminating..." >> progress.log
+}
+
+echo "INITAL RELAX" >> progress.log
+mpirun pw.x < $geom.scf.in > $geom.scf.out
+
+cond1=$(test_status $geom.scf.out)
+echo "INITAL RELAX CONDITION:" >> progress.log
+echo $cond1 >> progress.log
+
+i=1
+followup_calc $cond1 $i
+cond2=$(test_status $geom.scf.out)
+echo "FOLLOWUP CALC 1 CONDITION:" >> progress.log
+echo $cond2 >> progress.log
+
+i=2
+followup_calc $cond2 $i
+cond3=$(test_status $geom.scf.out)
+echo "FOLLOWUP CALC 2 CONDITION:" >> progress.log
+echo $cond3 >> progress.log
+
+i=3
+followup_calc $cond3 $i
+cond4=$(test_status $geom.scf.out)
+echo "FOLLOWUP CALC 3 CONDITION:" >> progress.log
+echo $cond4 >> progress.log
+
+i=4
+followup_calc $cond4 $i
+cond5=$(test_status $geom.scf.out)
+echo "FOLLOWUP CALC 4 CONDITION:" >> progress.log
+echo $cond5 >> progress.log
+
+echo "DONE" >> progress.log
+echo "Never give up. Never surrender!" >> progress.log
