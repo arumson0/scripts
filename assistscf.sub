@@ -1,11 +1,16 @@
 #!/bin/bash
-#SBATCH --nodes=1
+#SBATCH --nodes=2
 #SBATCH --tasks-per-node=64
 #SBATCH --mem=0
 #SBATCH --time=24:00:00
 #SBATCH --job-name=w_Gamma_fromHet
 #SBATCH --account=def-ejohnson
 
+module purge
+module load StdEnv/2020  intel/2020.1.217  openmpi/4.0.3
+module load quantumespresso/7.0
+
+modfile="/home/arumson/apps/pwout2in.awk"
 rm progress.log
 # This script is designed to handle a difficult PWscf calculation.
 # The difficulties accounted for will be:
@@ -20,16 +25,18 @@ echo "CALCULATION IS: $geom" >> progress.log
 # Function to test the status of the calculation
 test_status () {
 file=$1
-if [ grep -q "JOB DONE" $file ] && [ grep -q "End final coordinates" $file ]
+if  grep -q "JOB DONE" $file  &&  grep -q "End final coordinates" $file
   then
   echo "done"
-elif [ grep -q "JOB DONE" $file ] && [ grep -qv "NOT achieved" $file ]
+elif  grep -q "JOB DONE" $file
   then
-  echo "good"
-elif [ grep -q "JOB DONE" $file ] && [ grep -q "NOT achieved" $file ]
-  then
-  echo "bad_conv"
-elif [ grep -q "problems computing cholesky" $file ]
+  if grep -q "NOT achieved" $file
+    then
+    echo "bad_conv"
+  else
+    echo "good"
+  fi
+elif  grep -q "problems computing cholesky" $file
   then
   echo "cholesky"
 else
@@ -37,19 +44,25 @@ else
 fi
 }
 
+kill_this_job () {
+  id=$(ls -1 slurm* | awk -F - '{print $2}' | awk -F . '{print $1}' | sort -k1g | tail -n 1)
+  scancel $id
+}
+
 followup_calc () {
 cond=$1
 index=$2
 
-case $file in
+case $cond in
   done)
     echo "Job finished successfully. No further action required." >> progress.log
+    kill_this_job
   ;;
   good)
     echo "Job finished, but the calculation is not done. Resubmtting..." >> progress.log
     mv $geom.scf.out $geom.scf.out_good_$index
     mv $geom.scf.in $geom.scf.in_good_$index
-    ~/apps/pwout2in.awk $geom.scf.out_good_$index $geom.scf.in_good_$index > $geom.scf.in
+    $modfile $geom.scf.out_good_$index $geom.scf.in_good_$index > $geom.scf.in
 
     mpirun pw.x < $geom.scf.in > $geom.scf.out
   ;;
@@ -57,7 +70,7 @@ case $file in
     echo "Bad convergence. Editing the convergence criteria..." >> progress.log
     mv $geom.scf.out $geom.scf.out_bad_conv_$index
     mv $geom.scf.in $geom.scf.in_bad_conv_$index
-    ~/apps/pwout2in.awk $geom.scf.out_bad_conv_$index $geom.scf.in_bad_conv_$index > $geom.scf.in
+    $modfile $geom.scf.out_bad_conv_$index $geom.scf.in_bad_conv_$index > $geom.scf.in
 
     # Lower the mixing parameter:
     curr_mix=$(grep "mixing_beta" $geom.scf.in)
@@ -88,11 +101,11 @@ case $file in
     echo "Problems with the diagonalization. Editing the diagonalization method..." >> progress.log
     mv $geom.scf.out $geom.scf.out_cholesky_$index
     mv $geom.scf.in $geom.scf.in_cholesky_$index
-    ~/apps/pwout2in.awk $geom.scf.out_cholesky_$index $geom.scf.in_cholesky_$index > $geom.scf.in
+    $modfile $geom.scf.out_cholesky_$index $geom.scf.in_cholesky_$index > $geom.scf.in
 
     curr_diag_line=$(grep "diago_david_ndim" $geom.scf.in)
     curr_diag_dim=$(grep "diago_david_ndim" $geom.scf.in | awk -F = '{print $2}')
-    if [ test $curr_diag_dim -lt 16 ]
+    if  test $curr_diag_dim -lt 16
       then
       mod_diag_dim=$(grep "diago_david_ndim" $geom.scf.in | awk -F = '{print $2 + 4}')
       mod_diag_line=$(echo "diago_david_ndim = " $mod_diag_dim)
@@ -107,6 +120,9 @@ case $file in
   ;;
   unknown)
     echo "Unknown error encountered. Terminating..." >> progress.log
+    kill_this_job
+  ;;
+  esac
 }
 
 echo "INITAL RELAX" >> progress.log
