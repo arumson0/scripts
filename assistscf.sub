@@ -59,7 +59,7 @@ case $cond in
     kill_this_job
   ;;
   good)
-    echo "Job finished, but the calculation is not done. Resubmtting..." >> progress.log
+    echo "Job finished, but the calculation is not done. Please resubmit the job." >> progress.log
     mv $geom.scf.out $geom.scf.out_good_$index
     mv $geom.scf.in $geom.scf.in_good_$index
     $modfile $geom.scf.out_good_$index $geom.scf.in_good_$index > $geom.scf.in
@@ -128,33 +128,15 @@ case $cond in
 echo "INITAL RELAX" >> progress.log
 mpirun pw.x < $geom.scf.in > $geom.scf.out
 
-cond1=$(test_status $geom.scf.out)
+cond=$(test_status $geom.scf.out)
 echo "INITAL RELAX CONDITION:" >> progress.log
-echo $cond1 >> progress.log
 
-i=1
-followup_calc $cond1 $i
-cond2=$(test_status $geom.scf.out)
-echo "FOLLOWUP CALC 1 CONDITION:" >> progress.log
-echo $cond2 >> progress.log
+for i in {1..4}
+do
+  followup_calc $cond $i
+  cond=$(test_status $geom.scf.out)
+  echo "FOLLOWUP CALC $i CONDITION:" >> progress.log
+done
 
-i=2
-followup_calc $cond2 $i
-cond3=$(test_status $geom.scf.out)
-echo "FOLLOWUP CALC 2 CONDITION:" >> progress.log
-echo $cond3 >> progress.log
-
-i=3
-followup_calc $cond3 $i
-cond4=$(test_status $geom.scf.out)
-echo "FOLLOWUP CALC 3 CONDITION:" >> progress.log
-echo $cond4 >> progress.log
-
-i=4
-followup_calc $cond4 $i
-cond5=$(test_status $geom.scf.out)
-echo "FOLLOWUP CALC 4 CONDITION:" >> progress.log
-echo $cond5 >> progress.log
-
-echo "DONE" >> progress.log
+echo "DONE. Please review the followup calc. conditions." >> progress.log
 echo "Never give up. Never surrender!" >> progress.log
